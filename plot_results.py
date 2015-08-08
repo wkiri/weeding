@@ -14,11 +14,11 @@ m = ['x','o','.','+']
 with open(resfile, 'r') as inf:
     result = pickle.load(inf)
 
-# Replace 0-acc with NaN
+# Replace 0-precision with NaN
 for c in result.keys():
-    result[c][:,1:] = np.where(result[c][:,1:] == 0,
-                               np.nan,
-                               result[c][:,1:])
+    result[c][:,3] = np.where(result[c][:,3] == 0,
+                              np.nan,
+                              result[c][:,3])
 
 # Plot baselines
 
@@ -33,7 +33,7 @@ for (ind, value) in enumerate(['Accuracy',
     for (i,c) in enumerate(result.keys()):
         pylab.plot(result[c][:,0], result[c][:,ind+1], 
                    label=c, marker=m[i%len(m)])
-    pylab.legend(fontsize=10, loc=2)
+    pylab.legend(loc=2) #, fontsize=10)
     pylab.xlabel('Tau (confidence threshold)')
     pylab.ylabel(value)
     pylab.savefig('fig/tau-%s.png' % value)

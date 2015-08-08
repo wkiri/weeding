@@ -27,16 +27,12 @@ infile  = 'wesleyan.pkl'
 resfile = 'results.pkl'
 tau_values = np.linspace(0,1,11)
 
-# weeding efficiency
-def weeding_efficiency(cm):
-    # e_w = a(a+b+c+d) / ((a+b)(a+c))
-    # Note that this assumes a contingency matrix with 
-    # Withdraw first and Keep second (it is weeding efficiency).
-    # Since ours are alphabetical, we have to invert.
-    # Also assumes predicted = rows and human = columns, 
-    # which is also inverted.  Argh.
-    # e_w = d(a+b+c+d) / ((b+d)(c+d))
-    e_w = cm[1,1]*np.sum(cm)*1.0 / (cm[0,1]+cm[1,1]) / (cm[1,0]+cm[1,1])
+# weeding efficiency = ratio of classifier precision to the original
+# (label) precision
+def weeding_efficiency(cm, orig_prec):
+    # Assuming rows = machine and cols = human:
+    # classifier precision: d / (c+d)
+    e_w = cm[1,1]*1.0/(cm[1,0]+cm[1,1]) /  orig_prec
 
     return e_w
     
@@ -48,7 +44,8 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     # Predict on training data, then test data
     pred_tr = clf.predict(train)
 
-    cm = confusion_matrix(labels_train, pred_tr)
+    # Confusion matrix rows = first arg, cols = second arg
+    cm = confusion_matrix(pred_tr, labels_train)
     print cm
     print 'Training accuracy: %d / %d = %.2f%%' % (cm[0,0] + cm[1,1], 
                                                    np.sum(cm),
@@ -59,7 +56,11 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     print 'Phi: %.2f' % phi,
     # Significance - use chi-2 with 1 dof: chi2 = N * phi^2
     print 'Sig (chi^2): %.2f' % (len(labels_train) * pow(phi,2)),
-    print 'E_W = %.2f' % weeding_efficiency(cm)
+    total_weed = len([l for l in labels_test if l == 'Withdrawn'])
+    print 'E_W = %.2f' % weeding_efficiency(cm,
+                                            total_weed*1.0/len(labels_test))
+
+
     '''
     print 'Alternatively...'
     print chi2_contingency(cm)
@@ -72,7 +73,7 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     ######## Testing data ########
     pred_te = clf.predict(test)
 
-    cm = confusion_matrix(labels_test, pred_te)
+    cm = confusion_matrix(pred_te, labels_test)
     print cm
     print 'Testing accuracy: %d / %d = %.2f%%' % (cm[0,0] + cm[1,1], 
                                                    np.sum(cm),
@@ -98,7 +99,8 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     except:
         pass
     '''
-    print 'E_W = %.2f' % weeding_efficiency(cm)
+    print 'E_W = %.2f' % weeding_efficiency(cm,
+                                            total_weed*1.0/len(labels_test))
 
     # Sweep a confidence threshold
     try:
@@ -107,27 +109,36 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
         conf_te = -1
         return clf
 
-    res        = np.zeros((len(tau_values),8))
+    res        = np.ones((len(tau_values),8))*np.nan
     total_weed = len([l for l in labels_test if l == 'Withdrawn'])
     for i,tau in enumerate(tau_values):
+        res[i,0] = tau
+
         conf_pred = [(l,p) for (l,p,c) in zip(labels_test, pred_te, conf_te) \
                          if c >= tau]
         if len(conf_pred) == 0:
-            res[i,:] = 0
             continue
 
         l, p = zip(*conf_pred)
-        cm = confusion_matrix(l, p)
-        res[i,0] = tau
+        cm = confusion_matrix(p, l)
+        if tau == 1.0:
+            print cm
         res[i,1] = (cm[0,0] + cm[1,1])*100.0 / np.sum(cm) # accuracy
         res[i,2] = cm[1,1]*100.0 / total_weed             # recall
-        res[i,3] = cm[1,1]*100.0 / (cm[0,1] + cm[1,1])    # precision
-        res[i,4] = weeding_efficiency(cm)  # efficiency
+        try:
+            if cm[1,1] == 0: # no accurate withdraw predictions
+                res[i,3] = 0
+            else:
+                res[i,3] = cm[1,1]*100.0 / (cm[1,0] + cm[1,1])    # precision
+        except:
+            pass
+        res[i,4] = weeding_efficiency(cm, 
+                                      total_weed*1.0/len(labels_test))  # efficiency
         res[i,5] = matthews_corrcoef(l, p) # phi
         try:
             res[i,6] = chi2_contingency(cm)[1]
         except:
-            res[i,6] = np.nan
+            pass
         res[i,7] = np.sum(cm) # number of items used
 
     print res
@@ -137,7 +148,7 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
 
 def eval_baseline(labels, pred):
 
-    cm = confusion_matrix(labels, pred)
+    cm = confusion_matrix(pred, labels)
     print cm
 
     print 'Accuracy: %d / %d = %.2f%%' % (cm[0,0] + cm[1,1], np.sum(cm),
@@ -153,10 +164,12 @@ def eval_baseline(labels, pred):
         print chi2_contingency(cm)[1]
     except:
         print "couldn't compute chi2 sig."
-    print 'Recall = %.2f'    % (cm[1,1]*100.0 / (cm[1,0] + cm[1,1]))
-    print 'Precision = %.2f' % (cm[1,1]*100.0 / (cm[0,1] + cm[1,1]))
-    print 'E_W = %.2f' % weeding_efficiency(cm)
-    
+    print 'Recall = %.2f'    % (cm[1,1]*100.0 / (cm[0,1] + cm[1,1]))
+    print 'Precision = %.2f' % (cm[1,1]*100.0 / (cm[1,0] + cm[1,1]))
+    total_weed = len([l for l in labels if l == 'Withdrawn'])
+    print 'E_W = %.2f' % weeding_efficiency(cm,
+                                            total_weed*1.0/len(labels))
+
 
 # Read in pickled data file
 with open(infile, 'r') as inf:
@@ -192,6 +205,7 @@ print
 
 result = {}
 
+'''
 # 1. Linear SVM
 # Use dual=False when n_samples > n_features.
 # Use random_state to seed the random number generator (reproducible).
@@ -205,6 +219,7 @@ print 'All features:'
 #clf = train_and_eval(clf, data[train,0:4], data[test,0:4], 
 #                     labels[train], labels[test])
 print
+'''
 
 # 1a. RBF SVM
 # Use random_state to seed the random number generator (reproducible).
