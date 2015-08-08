@@ -116,13 +116,13 @@ items.
 
 \begin{figure}
 \centering
-\subfigure[{\em age}: Full data set]{\includegraphics[width=3.1in]{../data/fig/hist-ages}} 
-\subfigure[{\em age}: Split by decision]{\includegraphics[width=3.1in]{../data/fig/hist-ages-split}}\\
-\subfigure[{\em shelftime}: Full data set]{\includegraphics[width=3.1in]{../data/fig/hist-shelftime}} 
-\subfigure[{\em shelftime}: Split by decision]{\includegraphics[width=3.1in]{../data/fig/hist-shelftime-split}}\\
-\subfigure[{\em uslibs}: Full data set]{\includegraphics[width=3.1in]{../data/fig/hist-n_uslibs}}
+\subfigure[{\em age}: Full data set]{\includegraphics[width=3.1in]{../fig/hist-ages}} 
+\subfigure[{\em age}: Split by decision]{\includegraphics[width=3.1in]{../fig/hist-ages-split}}\\
+\subfigure[{\em shelftime}: Full data set]{\includegraphics[width=3.1in]{../fig/hist-shelftime}} 
+\subfigure[{\em shelftime}: Split by decision]{\includegraphics[width=3.1in]{../fig/hist-shelftime-split}}\\
+\subfigure[{\em uslibs}: Full data set]{\includegraphics[width=3.1in]{../fig/hist-n_uslibs}}
 \subfigure[{\em uslibs}: Split by
-  decision]{\includegraphics[width=3.1in]{../data/fig/hist-n_uslibs-split}}
+  decision]{\includegraphics[width=3.1in]{../fig/hist-n_uslibs-split}}
 \caption{Distribution of values observed for three variables (left
   column) as well as the distributions compiled separately for items
   marked ``Keep'' vs. ``Withdraw.''}
@@ -269,9 +269,9 @@ Given this definition of a contingency table:
 \begin{center}
 \begin{tabular}{c|cc} 
  & \multicolumn{2}{c}{Human} \\
-Classifier & Withdraw & Keep \\ \hline
-Withdraw & $a$ & $b$ \\
-Keep & $c$ & $d$ \\ \hline
+Classifier & Keep & Withdraw \\ \hline
+Keep     & $a$ & $b$ \\ 
+Withdraw & $c$ & $d$ \\ \hline
 \end{tabular}
 \end{center}
 \doublespacing
@@ -316,8 +316,8 @@ Support vector machine & 74.51\% & {\bf 74.65\%} & {\bf 0.58} & $p=0.00$ \\
 \end{center}
 \doublespacing
 
-The support vector machine had the highest test accuracy and $\phi$
-agreement statistic.  Several other classifiers suffered from
+The support vector machine has the highest test accuracy and $\phi$
+agreement statistic.  Several other classifiers suffer from
 overfitting, in which the training accuracy is much higher than the
 observed generalization performance on the test set.  All of the
 $\phi$ values shown are statistically significant at the desired
@@ -342,60 +342,132 @@ yielding discontinuous jumps in performance.  The random forest (RF)
 is an ensemble technique that incorporates voting from many individual
 classifiers, so it yields a more continuous distribution of posterior
 probabilities and a correspondingly smooth increase in accuracy as
-$\tau$ increases.
+$\tau$ increases.  
+
+The support vector machine (SVM) classifier maintains the same
+accuracy until $\tau$ reaches 0.7, at which point the classifier
+generates predictions for only 13,088 items, and all of its predictions
+are for ``Keep.''  Its selectivity is very reliable, yielding a high
+accuracy (97.5\%) for this subset of items.  The SVM does not make any
+predictions at $\tau=1.0$, so its results stop at $\tau=0.9$.
+Similarly, the Naive Bayes (NB) classifier switches to all ``Keep''
+decisions above a given $\tau$ value (1.0).
+
+Figure~\ref{fig:res}(b) reports the $\phi$ (agreement) values observed
+as $\tau$ is increased.  For most values of $\tau$, the SVM classifier
+has the highest $\phi$ agreement with human labels, as was shown in
+the initial table of results (the table corresponds to $\tau=0$).
+However, for $\tau >= 0.7$, SVM agreement drops dramatically.  While
+overall accuracy is high, this is largely due to correct ``Keep''
+predictions, and $\phi$ penalizes lopsided performance.  For high
+$\tau$ values, the 3-NN classifier yields higher agreement, and at
+$\tau = 1.0$, RF has the highest agreement.  As noted above, $\phi$ is
+$0.0$ if the predicted decisions all fall into one class or the other,
+which occurs for the SVM and NB at $\tau=1.0$.
+
+We can better understand the different classifier results by examining
+what kinds of errors they make.  Figure~\ref{fig:res}(c) shows
+classifier {\em recall}, which is the fraction of items labeled by
+humans as ``Withdraw'' for which the classifier correctly predicted
+``Withdraw.''  Again we see that the SVM and NB are very good at
+correctly predicting ``Withdraw'' for a large fraction ($> 96$\%) of
+the items that were truly withdrawn, until $\tau$ reaches 0.7 (SVM) or
+1.0 (NB), at which point they only predict ``Keep''.  For most
+classifiers, as $\tau$ increases, recall decreases, generally because
+the total number of predictions made by the classifier declines.
+
+The other side of the coin is {\em precision}, which is the fraction
+of items predicted by the classifier as ``Withdraw'' that were
+actually withdrawn.  Figure~\ref{fig:res}(d) shows that precision
+tends to increase as $\tau$ increases, indicating that the more
+confident decisions tend to more accurately predict item
+withdrawal. No value is shown for the sVM or NB at $\tau$ values for
+which they do not predict any ``Withdraw'' items.
 
 % Plot of Test acc as a fn of confidence threshold
 % Plot of Phi as a fn of confidence threshold
-%Plot of Weeding efficiency as a fn of confidence threshold
+% Plot of recall and precision
 \begin{figure}
 \centering
-\subfigure[Accuracy]{\includegraphics[width=3.1in]{../data/fig/tau-Accuracy}}
-\subfigure[Phi]{\includegraphics[width=3.1in]{../data/fig/tau-Phi}}
-\subfigure[Recall]{\includegraphics[width=3.1in]{../data/fig/tau-Recall}}
-\subfigure[Precision]{\includegraphics[width=3.1in]{../data/fig/tau-Precision}}
-\subfigure[Efficiency]{\includegraphics[width=3.1in]{../data/fig/tau-Efficiency}}
+\subfigure[Accuracy]{\includegraphics[width=3.1in]{../fig/tau-Accuracy}}
+\subfigure[Phi]{\includegraphics[width=3.1in]{../fig/tau-Phi}}
+\subfigure[Recall]{\includegraphics[width=3.1in]{../fig/tau-Recall}}
+\subfigure[Precision]{\includegraphics[width=3.1in]{../fig/tau-Precision}}
 \caption{Classifier results in predicting weeding decisions when
   varying the confidence threshold, $\tau$.}
 \label{fig:res}
 \end{figure}
 
+Finally, Figure~\ref{fig:eff} provides a different view of the
+precision results in which the classifier precision is normalized by
+the precision of the original full candidate list.  The {\em
+  efficiency} of a classifier's output is this ratio, which captures
+the degree to which using the classifier to filter the list of
+candidates can reduce librarian review effort.  A value of 1.0 would
+indicate that the classifier's precision is the same as the original
+list's precision, and higher values are better.  The relative ordering
+of the methods is the same as those seen in the precision plot.  We
+observe that all classifiers can increase the efficiency of the
+weeding process, with improvements ranging from 31-71\%.
+
+\begin{figure}
+\centering
+% Plot of Weeding efficiency as a fn of confidence threshold
+\subfigure[Efficiency]{\includegraphics[width=3.1in]{../fig/tau-Efficiency}}
+\caption{Classifier efficiency in predicting weeding decisions when
+  varying the confidence threshold, $\tau$.}
+\label{fig:eff}
+\end{figure}
 
 \section{Discussion of Results}
 
 The level of agreement between machine and human weeding decisions
 that was achieved using the current representation reached a maximum
-of 0.57 (accuracy of 73.55\%), using a support vector machine.  While
+of 0.58 (accuracy of 74.65\%), using a support vector machine.  While
 this is statistically significant agreement, the large size of the
 data set seems to render significant even low levels of agreement,
-such as 0.16 (61.41\% accuracy) achieved by the 3-nearest-neighbor
-classifier.  
+such as 0.34 (69.11\% accuracy) achieved by the decision tree.
 
-All of the machine learning classifiers, except 3-nearest-neighbor,
-performed better than either baseline approach in terms of accuracy.
-This indicates that they successfully leveraged information in the
-features.  However, they did not out-perform the ``Keep'' baseline by
-a large margin.
+All of the machine learning classifiers performed better than either
+baseline approach in terms of accuracy.  This indicates that they
+successfully leveraged information in the features.  However, they did
+not out-perform the ``Keep'' baseline by a large margin.
 
-\section{Next Steps}
+We observe higher accuracy, $\phi$ agreement, and precision by
+retaining only the most confident machine predictions, rather than
+relying on the machine to make predictions for all items.  This is a
+tradeoff; recall tends to go down as $\tau$ increases and the
+classifier makes fewer predictions.
 
-Rather than relying on the machine to make predictions for all items,
-we may observe higher agreement by retaining only the most confident
-machine predictions.  Each classifier produces a confidence associated
-with each prediction it makes.  We can use the machine output to rank
-the items by decreasing confidence in a ``Withdraw'' outcome.  We will
-assess accuracy and $\phi$ agreement for a number of different
-confidence thresholds $t$, in which only items with predictions that
-have confidence greater than $t$ will be considered.  This corresponds
-to a realistic scenario in which a librarian might use the machine
-predictions to prioritize candidates most likely to be weeded first.
+The examination of recall and precision, as a function of $\tau$,
+provides useful guidance for selecting which classifier would be of
+most use for a future weeding project.  If we wish to maximize the
+efficiency of librarian time when reviewing items for possible
+withdrawal, then we want precision to be as high as possible.  High
+precision indicates that a large fraction of the candidates given to
+the librarian to review will ultimately be withdrawn.  The best
+precision, and highest $\phi$ agreement, are achieved by the random
+forest (RF) classifier with a $\tau$ value of 1.0.  This yields a
+classifier efficiency of 1.71, indicating that a librarian examining
+the 14,321 items selected by the RF classifier (regardless of their
+prediction) would find 71\% more genuine ``withdraw'' candidates than
+spending the same time on the same number of items randomly pulled
+from the initial candidate list.
 
-Second, we will incorporate additional features into the item
-representation:
-\begin{itemize}
-\item Item in Hathi trust (provided by Wesleyan)
-\item Item in {\em Resources for College Libraries} (requires lookup by ISBN)
-\end{itemize}
+\section{Notes}
 
+As planned in my previous update, I added the confidence-based
+evaluation of performance as a function of $\tau$, and I added the
+Hathi Trust variables and omitted items with missing values.
 
+However, I have been unsuccessful at doing a scripted lookup of items
+in the dataset to see if they are contained in {\em Resources for
+  College Libraries}.  The requirement of an SJSU login can be easily
+met in a web browser, but I have not been able to get this to work
+from the command line or a script, which is the only feasible way to
+look up 67,000 items in a reasonable amount of time.  However, the
+results currently obtained may be sufficiently interesting without the
+inclusion of this variable.  I do not have any evidence that including
+it would make a significant difference in the outcome.
 
 \end{document}
