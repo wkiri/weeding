@@ -23,11 +23,14 @@ months = ['Jan', 'Feb', 'Mar', 'Apr',
           'Sep', 'Oct', 'Nov', 'Dec']
 
 # Reference date for determining time since last checkout.
-refdate = datetime.date(2014, 1, 1)
+#refdate = datetime.date(2014, 1, 1)
+refdate = datetime.date(2012, 1, 1)
 # Default shelftime assigned if # checkouts > 0 and last circ date is missing
-default_missing_shelftime = (refdate - datetime.date(2003, 1, 1)).days
+missing_shelftime_2003 = (refdate - datetime.date(2003, 1, 1)).days
 print 'Default shelftime for checked-out items without a checkout date:', 
-print default_missing_shelftime
+print missing_shelftime_2003
+# Shelftime used if we have no record of any checkouts of the item
+missing_shelftime_1996 = (refdate - datetime.date(1996, 1, 1)).days
 
 
 def quality_report(vals, name):
@@ -100,7 +103,7 @@ def correlation(x, y, varname):
         #sns.violinplot(x, y, scale="width")
         #sns.violinplot(x=y[use], y=x[use])
         sns.boxplot(x=y[use], y=x[use])
-        pylab.savefig('fig/boxplot-%s.png' % varname)
+        pylab.savefig('fig/boxplot-%s.pdf' % varname)
         '''
 
         # Ints/floats: create a histogram
@@ -108,7 +111,7 @@ def correlation(x, y, varname):
         #sns.distplot(x, rug=True)
         sns.distplot(x[x != -1])
         pylab.xlabel(varname)
-        pylab.savefig('fig/hist-%s.png' % varname)
+        pylab.savefig('fig/hist-%s.pdf' % varname)
 
         # Ints/floats: split by outcome
         pylab.clf()
@@ -120,7 +123,7 @@ def correlation(x, y, varname):
         sns.distplot(x[withdraws], color='r', label='Withdraw')
         pylab.xlabel(varname)
         pylab.legend()
-        pylab.savefig('fig/hist-%s-split.png' % varname)
+        pylab.savefig('fig/hist-%s-split.pdf' % varname)
 
 
 '''
@@ -176,9 +179,11 @@ with open(infile, 'r') as csvfile:
     data = []
 
     nlines = 0
-    n_enums    = 0
-    n_booksout = 0
-    n_missdate = 0
+    n_enums           = 0
+    n_booksout        = 0
+    n_missdate        = 0
+    n_largeshelftime  = 0
+    n_nevercheckedout = 0
     for line in rd:
         nlines += 1
         # Construct the feature vector
@@ -210,6 +215,9 @@ with open(infile, 'r') as csvfile:
         #n_checkout = line[ind_ch]
 
         # 4. Days since last checkout: integer >= 0
+        # We're not going to use this.  All but 11 of the dates are 
+        # post-2003, and those items were not supposed to be included.
+        # Parse here so we can exclude those items.
         if line[ind_dt] == '': # date unspecified
             shelftime = -1     # or set to some max value? earlier than 1996.
         else:
@@ -241,6 +249,9 @@ with open(infile, 'r') as csvfile:
                 y = 2000 + y
             else:
                 print 'Error parsing m/d/y date from %s.' % line[ind_dt]
+            if y >= 2003:
+                # Skip these items; shouldn't have been included.
+                continue
             shelftime = (refdate - datetime.date(y, m, d)).days
 
         # 5. Number of U.S. libraries holding a copy: integer >= 0
@@ -285,11 +296,26 @@ with open(infile, 'r') as csvfile:
             n_booksout += 1
 
         # QC: if # checkouts > 0 but last checkout date is missing,
+        # it was checked out sometime between 1996 and 2003, so
         # set last checkout date to 1/1/2003.
         if n_checkout > 0 and shelftime == -1:
-            shelftime   = default_missing_shelftime
+            shelftime   = missing_shelftime_2003
             n_missdate += 1
-            continue  # Don't include these
+            #continue  # Don't include these
+
+        # QC: Lori says these are invalid, so exclude.
+        if shelftime > missing_shelftime_1996:
+            print 'Shelftime (%d):' % id, shelftime, datetime.datetime(y,m,d)
+            n_largeshelftime += 1
+            continue
+
+        # QC: if shelftime is still missing, 
+        # there is no record of the book ever being checked out.
+        # But we can't just have a missing value, so
+        # set last checkout date to 1/1/1996.
+        if shelftime == -1:
+            shelftime   = missing_shelftime_1996
+            n_nevercheckedout += 1
 
         fv = [dec, id, age, n_checkout, shelftime, 
               n_uslib, n_peerlib, 
@@ -304,7 +330,9 @@ with open(infile, 'r') as csvfile:
     print 'Successfully parsed %d of %d items.' % (len(data), nlines)
     print ' %d were part of an enumeration (skipped).' % n_enums
     print ' %d were circulating (set # checkouts to 1).' % n_booksout
-    print ' %d were checked out between 1996 and 2003 (set last circ date to 1/1/2003)' % n_missdate
+    print ' %d were checked out between 1996 and 2003' % n_missdate
+    print ' %d had a last checkout date before 1/1/1996' % n_largeshelftime
+    print ' %d were never checked out (since 1996)' % n_nevercheckedout
     print
 
     (decs, ids, ages, n_checkouts, shelftime, 
@@ -332,18 +360,20 @@ with open(infile, 'r') as csvfile:
 
     #--------- Correlation analysis ------------#
     vals=range(len(labels))
-    correlation(data[vals,0], labels[vals], 'ages')
-    correlation(data[vals,1], labels[vals], 'n_checkouts')
-    correlation(data[vals,2], labels[vals], 'shelftime')
-    correlation(data[vals,3], labels[vals], 'n_uslibs')
-    correlation(data[vals,4], labels[vals], 'n_peerlibs')
-    correlation(data[vals,5], labels[vals], 'hathi_copys')
-    correlation(data[vals,6], labels[vals], 'hathi_pubs')
-    correlation(data[vals,7], labels[vals], 'n_fks')
-    correlation(data[vals,8], labels[vals], 'n_lks')
+    for i,name in enumerate(['ages', 'n_checkouts', 'shelftime',
+                             'n_uslibs', 'n_peerlibs',
+                             'hathi_copys', 'hathi_pubs',
+                             'n_fks', 'n_lks']):
+        correlation(data[vals,i], labels[vals], name)
+
+    # Get just the shelftimes < 4000
+    #vals=np.where(data[:,2] < missing_shelftime_2003)[0]
+    #print '%d items checked out since 2003' % len(vals)
+    #correlation(data[vals,2], labels[vals], 'shelftime-real')
 
     # Restrict data to features of interest
-    #data = data[:,[0,2,7,8]]
+    # Omit shelftime
+    data = data[:,[0,1,3,4,5,6,7,8]].astype(np.float32)
     #data = np.reshape(data, (data.size,1))
     print data.shape
 
