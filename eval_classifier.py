@@ -8,6 +8,7 @@ import pickle  # to read in
 import datetime
 import numpy as np
 import random
+from time import time
 from sklearn.preprocessing import StandardScaler
 from sklearn import neighbors
 from sklearn import tree
@@ -17,22 +18,66 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import matthews_corrcoef
+from sklearn.grid_search import RandomizedSearchCV
+from sklearn.grid_search import GridSearchCV
+from scipy import stats
 from scipy.stats import chi2_contingency
 from sklearn.feature_selection import chi2
 from collections import Counter
 from sklearn.externals.six import StringIO  
+from operator import itemgetter
 #import pydot
 
 infile  = 'wesleyan.pkl'
 resfile = 'results.pkl'
-tau_values = np.linspace(0,1,11)
+# Start at 0.5
+tau_values = np.linspace(0.5,1,101)
+
+
+# Compute Yule's Q coefficient and statistical significance
+# at the 0.01 level.
+# Warning! Invalid if any cell is zero; shouldn't be used if 
+# any cell < 5.
+def yule_q(cm):
+    # If any cell has fewer than 5 entries, return Inf
+    if len(cm) != 2 or np.any(cm < 5):
+        return (np.inf, False)
+
+    # yule_q = (ad-bc)/(ad+bc) = (OR-1)/(OR+1)
+    # This is symmetric, so I'm not worried about whether
+    # week or keep comes first
+    yq = (cm[0,0]*cm[1,1] - cm[0,1]*cm[1,0]) / \
+        np.float(cm[0,0]*cm[1,1] + cm[0,1]*cm[1,0])
+
+    # Stat sig comes from chi^2
+    chi2 = yq / (np.sqrt(0.25 * np.power((1.0-np.power(yq,2)),2) * \
+                             (1.0/cm[0,0] + 1.0/cm[0,1] + 
+                              1.0/cm[1,0] + 1.0/cm[1,1])))
+    if chi2 > 2.33: # alpha = 0.01
+        sig = True
+    else:
+        sig = False
+
+    return (yq, sig)
+
 
 # weeding efficiency = ratio of classifier precision to the original
 # (label) precision
-def weeding_efficiency(cm, orig_prec):
+def weeding_efficiency(cm, orig_prec, one_pred):
     # Assuming rows = machine and cols = human:
     # classifier precision: d / (c+d)
-    e_w = cm[1,1]*1.0/(cm[1,0]+cm[1,1]) /  orig_prec
+    if len(cm) > 1:
+        if (cm[1,0]+cm[1,1]) > 0:
+            e_w = cm[1,1]*1.0/(cm[1,0]+cm[1,1]) /  orig_prec
+        else: # all 'Keep'
+            e_w = 0.0 / orig_prec
+    else:
+        # Only one cell in cm, meaning full agreement.
+        # Precision depends on whether it's all 'Keep' or all 'Withdraw'.
+        if one_pred == 'Withdrawn':
+            e_w = 1.0 / orig_prec
+        else: # all 'Keep'
+            e_w = 0.0 / orig_prec
 
     return e_w
     
@@ -55,10 +100,16 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     phi = matthews_corrcoef(labels_train, pred_tr)
     print 'Phi: %.2f' % phi,
     # Significance - use chi-2 with 1 dof: chi2 = N * phi^2
-    print 'Sig (chi^2): %.2f' % (len(labels_train) * pow(phi,2)),
-    total_weed = len([l for l in labels_test if l == 'Withdrawn'])
+    print 'Sig (chi^2): %.2f' % (len(labels_train) * pow(phi,2))
+
+    (yq, sig) = yule_q(cm)
+    print "Yule's Q: %.2f" % yq
+
+    total_weed = len([l for l in labels_train if l == 'Withdrawn'])
+
     print 'E_W = %.2f' % weeding_efficiency(cm,
-                                            total_weed*1.0/len(labels_test))
+                                            total_weed*1.0/len(labels_train),
+                                            pred_tr[0])
 
 
     '''
@@ -72,6 +123,7 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
 
     ######## Testing data ########
     pred_te = clf.predict(test)
+    print Counter(pred_te)
 
     cm = confusion_matrix(pred_te, labels_test)
     print cm
@@ -84,7 +136,6 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     print 'Phi: %.2f' % phi,
     # Significance - use chi-2 with 1 dof: chi2 = N * phi^2
     print 'Sig (chi^2): %.2f' % (len(labels_test) * pow(phi,2)),
-
     print 'Alternatively...'
     try:
         print chi2_contingency(cm)[1]
@@ -99,12 +150,20 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     except:
         pass
     '''
+    # Report Yule's Q for agreement
+    (yq, sig) = yule_q(cm)
+    print "Yule's Q: %.2f" % yq
+
     print 'E_W = %.2f' % weeding_efficiency(cm,
-                                            total_weed*1.0/len(labels_test))
+                                            total_weed*1.0/len(labels_test),
+                                            pred_te[0])
 
     # Sweep a confidence threshold
     try:
-        conf_te = np.max(clf.predict_proba(test),axis=1)
+        # Get the max confidence classification
+        conf_te = np.max(clf.predict_proba(test), axis=1)
+        # Get the confidence in the "Withdrawn" class (class 1)
+        #conf_te = clf.predict_proba(test)[:,1]
     except:
         conf_te = -1
         return clf
@@ -120,28 +179,56 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
             continue
 
         l, p = zip(*conf_pred)
+        # Pretend that these are all predicted to be "withdrawn"
+        #p = ['Withdrawn'] * len(p)
+        #print Counter(p)
         cm = confusion_matrix(p, l)
+        #print tau, cm
         if tau == 1.0:
-            print cm
-        res[i,1] = (cm[0,0] + cm[1,1])*100.0 / np.sum(cm) # accuracy
-        res[i,2] = cm[1,1]*100.0 / total_weed             # recall
+            print tau, cm
+        if len(cm) > 1:
+            res[i,1] = (cm[0,0] + cm[1,1])*100.0 / np.sum(cm) # accuracy
+            res[i,2] = cm[1,1]*100.0 / total_weed             # recall
+        else:
+            # Only one cell in cm, meaning full agreement.
+            res[i,1] = 1.0 # accuracy
+            # Recall and precision depend on 
+            # whether it's all 'Keep' or all 'Withdraw'.
+            if p[0] == 'Withdrawn':
+                res[i,2] = cm[0,0]*100.0 / total_weed # recall
+                res[i,3] = 1.0
+            else: # all 'Keep'
+                res[i,2] = 0.0 # recall
+                res[i,3] = 0.0 # precision 
         try:
             if cm[1,1] == 0: # no accurate withdraw predictions
-                res[i,3] = 0
+                res[i,3] = 0.0 # precision
             else:
                 res[i,3] = cm[1,1]*100.0 / (cm[1,0] + cm[1,1])    # precision
         except:
             pass
         res[i,4] = weeding_efficiency(cm, 
-                                      total_weed*1.0/len(labels_test))  # efficiency
+                                      total_weed*1.0/len(labels_test),
+                                      p[0]) # efficiency
+        
+        '''
         res[i,5] = matthews_corrcoef(l, p) # phi
+        #print res[i,5]
         try:
-            res[i,6] = chi2_contingency(cm)[1]
+            res[i,6] = 1 - stats.chi2.cdf(sum(sum(cm))*pow(res[i,5],2),1)
+            #print res[i,6]
+            #res[i,6] = chi2_contingency(cm)[1]
         except:
             pass
-        res[i,7] = np.sum(cm) # number of items used
+        '''
 
-    print res
+        # Report Yule's Q for agreement
+        (res[i,5], res[i,6]) = yule_q(cm)
+
+        res[i,7] = np.sum(cm) # number of items used
+        #print res[i,1:4]
+
+    #print res
 
     return (clf, res)
 
@@ -151,9 +238,10 @@ def eval_baseline(labels, pred):
     cm = confusion_matrix(pred, labels)
     print cm
 
-    print 'Accuracy: %d / %d = %.2f%%' % (cm[0,0] + cm[1,1], np.sum(cm),
-                                          (cm[0,0] + cm[1,1]) * 100.0 / np.sum(cm))
+    acc = (cm[0,0] + cm[1,1]) * 100.0 / np.sum(cm)
+    print 'Accuracy: %d / %d = %.2f%%' % (cm[0,0] + cm[1,1], np.sum(cm), acc)
 
+    '''
     # Report phi coefficient (also known as Matthew's correlation coeff)
     phi = matthews_corrcoef(labels, pred)
     print 'Phi: %.2f' % phi,
@@ -164,11 +252,29 @@ def eval_baseline(labels, pred):
         print chi2_contingency(cm)[1]
     except:
         print "couldn't compute chi2 sig."
-    print 'Recall = %.2f'    % (cm[1,1]*100.0 / (cm[0,1] + cm[1,1]))
-    print 'Precision = %.2f' % (cm[1,1]*100.0 / (cm[1,0] + cm[1,1]))
+    '''
+
+    # Report Yule's Q for agreement
+    (yq, sig) = yule_q(cm)
+    print "Yule's Q: %.2f" % yq
+
+    recall = (cm[1,1]*100.0 / (cm[0,1] + cm[1,1]))
+    if (cm[1,0] + cm[1,1]) > 0:
+        precision = (cm[1,1]*100.0 / (cm[1,0] + cm[1,1]))
+    else:
+        precision = 0.0
+
+    print 'Recall = %.2f'    % recall
+    print 'Precision = %.2f' % precision
+
     total_weed = len([l for l in labels if l == 'Withdrawn'])
-    print 'E_W = %.2f' % weeding_efficiency(cm,
-                                            total_weed*1.0/len(labels))
+    eff = weeding_efficiency(cm,
+                             total_weed*1.0/len(labels),
+                             pred[0])
+    print 'E_W = %.2f' % eff
+
+    # Accuracy, recall, precision, efficiency, yule-q, sig, #items
+    return (acc, recall, precision, eff, yq, sig, np.sum(cm))
 
 
 # Read in pickled data file
@@ -195,98 +301,218 @@ test  = inds[half_N:-1]
 scaler = StandardScaler().fit(data[train])
 data = scaler.transform(data)
 
+# Load previously saved results
+result = pickle.load(open(resfile, 'r'))
+
 # Predict same value for all test items
 for p in ['Withdrawn', 'Keep']:
     print 'Baseline (%s):' % p
     pred = np.array([p] * len(labels[test]))
-    eval_baseline(labels[test], pred)
+    # Rename this baseline 
+    if p == 'Withdrawn':
+        p = 'Withdraw'
+    result[p] = eval_baseline(labels[test], pred)
     print
 print
 
-result = {}
+# Save results to pickled file
+with open(resfile, 'w') as outf:
+    pickle.dump(result, outf)
 
-'''
-# 1. Linear SVM
+sys.exit(0)
+
+# Utility function to report best scores
+def report(grid_scores, n_top=3):
+    top_scores = sorted(grid_scores, key=itemgetter(1), reverse=True)[:n_top]
+    for i, score in enumerate(top_scores):
+        print("Model with rank: {0}".format(i + 1))
+        print("Mean validation score: {0:.3f} (std: {1:.3f})".format(
+              score.mean_validation_score,
+              np.std(score.cv_validation_scores)))
+        print("Parameters: {0}".format(score.parameters))
+        print("")
+
+# 1. Linear SVM #################################################
+print 'Linear SVM (even slower with probabilities!):'
+
+param_dist = {'C': np.logspace(-10,1,12)}
+# Note: can give class weights with class_weight={'Keep':1,'Withdrawn':2}
+clf = SVC(kernel='linear', random_state=0)
+grid_search = GridSearchCV(clf, param_grid=param_dist, n_jobs=-1)
+start = time()
+grid_search.fit(data[train], labels[train])
+print("GridSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), len(param_dist['C'])))
+report(grid_search.grid_scores_)
+clf    = grid_search.best_estimator_
+best_C = clf.C
+
 # Use dual=False when n_samples > n_features.
 # Use random_state to seed the random number generator (reproducible).
-print 'SVM (even slower with probabilities!):'
 #clf = LinearSVC(dual=False, random_state=0)
-clf = SVC(kernel='linear', random_state=0, probability=True) # sloooow!
+clf = SVC(kernel='linear', C=best_C, random_state=0, probability=True) # sloooow!
 print 'All features:'
+
+#clf = pickle.load(open('models/SVM.pkl'))
 (clf, result['SVM']) = train_and_eval(clf, data[train], data[test], 
                                       labels[train], labels[test])
-#print '\nAll features but votes:'
-#clf = train_and_eval(clf, data[train,0:4], data[test,0:4], 
-#                     labels[train], labels[test])
+# Save out the trained classifier
+pickle.dump(clf, open('models/SVM.pkl', 'w'))
 print
-'''
 
-# 1a. RBF SVM
+# Save results to pickled file
+with open(resfile, 'w') as outf:
+    pickle.dump(result, outf)
+
+# 1a. RBF SVM ###############################################
 # Use random_state to seed the random number generator (reproducible).
 print 'RBF SVM (slow!):'
-clf = SVC(kernel='rbf', random_state=0, probability=True)
+
+# Param search for RBF SVM takes way too long (data set is too large?)
+# especially for large C
+# so just use the best_C from above
+# and try three gammas
+#param_dist = {'C': np.logspace(-3, 10, 14),
+param_dist = {'C': np.logspace(-10, 1, 11),
+              'gamma': np.logspace(-2, 3, 6)}
+# Note: can give class weights with class_weight={'Keep':1,'Withdrawn':2}
+clf = SVC(kernel='rbf', random_state=0)
+# Does 3-fold CV
+#n_iter_search = 50
+#my_search = RandomizedSearchCV(clf, param_distributions=param_dist, 
+#                                   n_iter=n_iter_search)
+my_search = GridSearchCV(clf, param_grid=param_dist, n_jobs=-1)
+start = time()
+my_search.fit(data[train], labels[train])
+n_iter_search = len(param_dist['gamma']) * len(param_dist['C'])
+print("SearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+report(my_search.grid_scores_)
+clf    = my_search.best_estimator_
+best_C = clf.C
+best_gamma = clf.gamma
+
+clf = SVC(kernel='rbf', C=best_C, gamma=best_gamma,
+          random_state=0, probability=True)
 print 'All features:'
+
+#clf = pickle.load(open('models/SVM-RBF.pkl'))
 (clf, result['SVM RBF']) = train_and_eval(clf, data[train], data[test], 
                                           labels[train], labels[test])
-#print '\nAll features but votes:'
-#clf = train_and_eval(clf, data[train,0:4], data[test,0:4], 
-#                     labels[train], labels[test])
+# Save out the trained classifier
+pickle.dump(clf, open('models/SVM-RBF.pkl', 'w'))
 print
 
-# 2. K-nearest-neighbor 
-#for n_neighbors in [3,5,7,9,11]:
-for n_neighbors in [3]:
-    print '%d-nearest neighbor:' % n_neighbors
-    clf = neighbors.KNeighborsClassifier(n_neighbors)
-    print 'All features:'
-    (clf, result['%d-NN' % n_neighbors]) = \
-        train_and_eval(clf, data[train], data[test], 
-                       labels[train], labels[test])
-    #print '\nAll features but votes:'
-    #clf = train_and_eval(clf, data[train,0:4], data[test,0:4], 
-    #                     labels[train], labels[test])
-    print
+# Save results to pickled file
+with open(resfile, 'w') as outf:
+    pickle.dump(result, outf)
 
-# 3. Gaussian Naive Bayes
+
+'''
+# 2. K-nearest-neighbor ###########################################
+
+# Select best k
+n_iter_search = 100
+param_dist = {'n_neighbors': stats.randint(1,200)}
+
+clf = neighbors.KNeighborsClassifier()
+random_search = RandomizedSearchCV(clf, param_distributions=param_dist,
+                                   n_iter=n_iter_search)
+start = time()
+random_search.fit(data[train], labels[train])
+print("RandomizedSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+report(random_search.grid_scores_)
+clf    = random_search.best_estimator_
+
+print 'All features:'
+
+clf = pickle.load(open('models/NN.pkl'))
+best_k = clf.n_neighbors
+print '%d-nearest neighbor:' % best_k
+
+(clf, result['%d-NN' % best_k]) = \
+    train_and_eval(clf, data[train], data[test], 
+                   labels[train], labels[test])
+# Save out the trained classifier
+pickle.dump(clf, open('models/NN.pkl', 'w'))
+print
+
+# Save results to pickled file
+with open(resfile, 'w') as outf:
+    pickle.dump(result, outf)
+
+# 3. Gaussian Naive Bayes #########################################
 print 'Gaussian Naive Bayes:'
 clf = GaussianNB()
 print 'All features:'
 (clf, result['NB']) = train_and_eval(clf, data[train], data[test], 
                                      labels[train], labels[test])
-#print '\nAll features but votes:'
-#clf = train_and_eval(clf, data[train,0:4], data[test,0:4], 
-#                     labels[train], labels[test])
+# Save out the trained classifier
+pickle.dump(clf, open('models/NB.pkl', 'w'))
 print
 
-# 4. Decision tree
+# Save results to pickled file
+with open(resfile, 'w') as outf:
+    pickle.dump(result, outf)
+
+# 4. Decision tree ################################################
 print 'Decision tree:'
+
+n_iter_search = 100
+param_dist = {'max_depth': [3,5,None],
+              'max_features': stats.randint(1,8),
+              'criterion': ['gini', 'entropy']}
+
 clf = tree.DecisionTreeClassifier()
+random_search = RandomizedSearchCV(clf, param_distributions=param_dist,
+                                   n_iter=n_iter_search)
+start = time()
+random_search.fit(data[train], labels[train])
+print("RandomizedSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+report(random_search.grid_scores_)
+clf    = random_search.best_estimator_
+
 print 'All features:'
+
+clf = pickle.load(open('models/DT.pkl'))
 (clf, result['DT']) = train_and_eval(clf, data[train], data[test], 
                                      labels[train], labels[test])
-#print '\nAll features but votes:'
-#clf = train_and_eval(clf, data[train,0:4], data[test,0:4], 
-#                     labels[train], labels[test])
-#print '\nFaculty votes alone:'
-#clf = train_and_eval(clf, data[:,4], labels)
-#print '\nLibrarian votes alone:'
-#clf = train_and_eval(clf, data[:,5], labels)
+# Save out the trained classifier
+pickle.dump(clf, open('models/DT.pkl','w'))
 print
 
-# 5. Random Forest
+# Save results to pickled file
+with open(resfile, 'w') as outf:
+    pickle.dump(result, outf)
+'''
+
+# 5. Random Forest #############################################
 print 'Random Forest:'
+n_iter_search = 50
+param_dist = {'max_depth': [3,5,None],
+              'max_features': stats.randint(1,8),
+              'criterion': ['gini', 'entropy'],
+              'n_estimators': [10,20,50,100,500]}
 clf = RandomForestClassifier()
-print 'All features:'
+random_search = RandomizedSearchCV(clf, param_distributions=param_dist,
+                                   n_iter=n_iter_search)
+start = time()
+random_search.fit(data[train], labels[train])
+print("RandomizedSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+report(random_search.grid_scores_)
+clf    = random_search.best_estimator_
+
 (clf, result['RF']) = train_and_eval(clf, data[train], data[test], 
                                      labels[train], labels[test])
-#print '\nAll features but votes:'
-#clf = train_and_eval(clf, data[train,0:4], data[test,0:4], 
-#                     labels[train], labels[test])
-#print '\nFaculty votes alone:'
-#clf = train_and_eval(clf, data[:,4], labels)
-#print '\nLibrarian votes alone:'
-#clf = train_and_eval(clf, data[:,5], labels)
-print
+# Save out the trained classifier
+pickle.dump(clf, open('models/RF.pkl', 'w'))
+
+# Save results to pickled file
+with open(resfile, 'w') as outf:
+    pickle.dump(result, outf)
 
 '''
 # 6. AdaBoost
@@ -297,10 +523,6 @@ clf = train_and_eval(clf, data, labels)
 print '\nAll features but votes:'
 clf = train_and_eval(clf, data[:,0:4], labels)
 '''
-
-# Save to pickled file
-with open(resfile, 'w') as outf:
-    pickle.dump(result, outf)
 
 # Don't do this - eats up CPU and RAM and disk!
 #dot_data = StringIO() 
