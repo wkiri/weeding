@@ -125,6 +125,26 @@ def correlation(x, y, varname):
         pylab.legend()
         pylab.savefig('fig/hist-%s-split.pdf' % varname)
 
+        print 'Plotted distribution to fig/ directory.'
+
+        # Print distribution of 0 and >0 values
+        if len(x[x==0]) > 0:
+            yvals = set(y)
+            print '\t\t\t\t' + '\t'.join(yvals)
+            print '0', len(x[x==0]), \
+                len(x[x==0])*100.0/len(x),'\t',
+            for u_y in yvals:
+                print '\t%d' % len(x[x[y == u_y]==0]),
+            print '\t%.2f' % (len(x[x[y == 'Withdrawn']==0])*1.0/\
+                                  len(x[x==0]))
+            print '>0', len(x[x>0]), \
+                len(x[x>0])*100.0/len(x),'\t',
+            for u_y in yvals:
+                print '\t%d' % len(x[x[y == u_y]>0]),
+            print '\t%.2f' % (len(x[x[y == 'Withdrawn']>0])*1.0/\
+                                  len(x[x>0]))
+            print
+
 
 '''
 # Read in the ISBN info
@@ -184,6 +204,8 @@ with open(infile, 'r') as csvfile:
     n_missdate        = 0
     n_largeshelftime  = 0
     n_nevercheckedout = 0
+    n_oops            = 0 # Books with checkouts after 2003; 
+                          # per Lori, these should have been excluded
     for line in rd:
         nlines += 1
         # Construct the feature vector
@@ -251,6 +273,7 @@ with open(infile, 'r') as csvfile:
                 print 'Error parsing m/d/y date from %s.' % line[ind_dt]
             if y >= 2003:
                 # Skip these items; shouldn't have been included.
+                n_oops += 1
                 continue
             shelftime = (refdate - datetime.date(y, m, d)).days
 
@@ -328,10 +351,11 @@ with open(infile, 'r') as csvfile:
     #--------- Data quality report ------------#
     print
     print 'Successfully parsed %d of %d items.' % (len(data), nlines)
+    print ' %d should have been excluded (skipped).' % n_oops
     print ' %d were part of an enumeration (skipped).' % n_enums
+    print ' %d had a last checkout date before 1/1/1996 (skipped)' % n_largeshelftime
     print ' %d were circulating (set # checkouts to 1).' % n_booksout
     print ' %d were checked out between 1996 and 2003' % n_missdate
-    print ' %d had a last checkout date before 1/1/1996' % n_largeshelftime
     print ' %d were never checked out (since 1996)' % n_nevercheckedout
     print
 
@@ -372,7 +396,7 @@ with open(infile, 'r') as csvfile:
     #correlation(data[vals,2], labels[vals], 'shelftime-real')
 
     # Restrict data to features of interest
-    # Omit shelftime
+    # Omit shelftime (2)
     data = data[:,[0,1,3,4,5,6,7,8]].astype(np.float32)
     #data = np.reshape(data, (data.size,1))
     print data.shape
