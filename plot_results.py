@@ -57,8 +57,15 @@ for (ind, value) in enumerate(['Accuracy',
     for c in result.keys():
         if c in ['Keep','Withdraw']:
             continue
-        pylab.plot(result[c][:,0], result[c][:,ind+1], 
-                   label=c, marker=m[i%len(m)])
+        # For Yule's Q, only plot significant ones
+        if value == 'Yule-Q':
+            use = np.where(result[c][:,ind+2])
+            pylab.plot(result[c][use,0][0], result[c][use,ind+1][0], 
+                       label=c, marker=m[i%len(m)])
+        else:
+            pylab.plot(result[c][:,0], result[c][:,ind+1], 
+                       label=c, marker=m[i%len(m)])
+        
         i += 1
     if value != 'Yule-Q':
         # Add baselines.  Use tau from NB.
