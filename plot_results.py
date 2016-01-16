@@ -33,15 +33,18 @@ for c in result.keys():
                               result[c][:,5])
 
 # Could use this to box or limit the sig results
-#print 'Significance'
-#for c in result.keys():
-#    print result[c][:,6]
+print 'Phi Significance'
+for c in result.keys():
+    if c in ['Keep','Withdraw']:
+        continue
+    print c, result[c][:,6]
 
 # Plot results as a fn of tau
 ylims = {'Accuracy': [35,100],
          'Recall':   [0,100],
          'Precision':[0,100],
          'Efficiency':[0,3],
+         'Phi':      [0,1],
          'Yule-Q':   [0.8,1]}
 ls = {'Keep': 'dashdot',
       'Withdraw': 'dashed'}
@@ -49,16 +52,19 @@ for (ind, value) in enumerate(['Accuracy',
                                'Recall',
                                'Precision',
                                'Efficiency',
-                               'Yule-Q']):
-#                               'Phi']):,
-#                               'Significance']):
+                               'Phi',
+                               'Phi-Sig',
+                               'Yule-Q',
+                               'Yule-Q-Sig']):
     pylab.clf()
     i = 0
+    if '-Sig' in value:
+        continue
     for c in result.keys():
         if c in ['Keep','Withdraw']:
             continue
-        # For Yule's Q, only plot significant ones
-        if value == 'Yule-Q':
+        # For Phi and Yule's Q, only plot significant ones
+        if value == 'Phi' or value == 'Yule-Q':
             use = np.where(result[c][:,ind+2])
             pylab.plot(result[c][use,0][0], result[c][use,ind+1][0], 
                        label=c, marker=m[i%len(m)])
@@ -67,7 +73,7 @@ for (ind, value) in enumerate(['Accuracy',
                        label=c, marker=m[i%len(m)])
         
         i += 1
-    if value != 'Yule-Q':
+    if value != 'Phi' and value != 'Yule-Q':
         # Add baselines.  Use tau from NB.
         for b in ['Keep','Withdraw']:
             pylab.plot([result['NB'][0,0],
@@ -111,7 +117,7 @@ print "\caption{Test performance for automated methods of predicting weeding dec
 print '\label{tab:res}'
 print '\\begin{center}'
 print '\\begin{tabular}{|l|c|cc|cc|} \hline'
-print "Method & Accuracy & Recall & Precision & Yule's Q & Stat sig \\\\ \hline"
+print "Method & Accuracy & Recall & Precision & $\phi$ & Yule's Q \\\\ \hline"
 for b in ['Keep','Withdraw']:
     print "Baseline (all ``%s'') & %.2f & %.2f & %.2f & N/A & N/A \\\\" % \
         (b, result[b][0], result[b][1], result[b][2])
@@ -119,9 +125,11 @@ print '\hline'
 for c in result.keys():
     if c in ['Keep','Withdraw']:
         continue
-    print '%10s & %.2f & %.2f & %.2f & %.2f & %s \\\\' % \
+    # Critical value for chi-2 for 1 dof at p=0.01 is 6.6349
+    print '%10s & %.2f & %.2f & %.2f & %.2f%s & %.2f%s \\\\' % \
         (c, result[c][0,1], result[c][0,2], result[c][0,3],
-         result[c][0,5], result[c][0,6] == 1.0)
+         result[c][0,5], '*' if (result[c][0,6] > 6.6349) else '',
+         result[c][0,7], '*' if (result[c][0,8] == 1.0) else '')
 print '\hline'
 print '\end{tabular}'
 print '\end{center}'

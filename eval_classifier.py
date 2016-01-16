@@ -24,14 +24,15 @@ from scipy import stats
 from scipy.stats import chi2_contingency
 from sklearn.feature_selection import chi2
 from collections import Counter
-from sklearn.externals.six import StringIO  
 from operator import itemgetter
+#from sklearn.externals.six import StringIO  
 #import pydot
 
 infile  = 'wesleyan.pkl'
 resfile = 'results.pkl'
 # Start at 0.5
-tau_values = np.linspace(0.5,1,101)
+#tau_values = np.linspace(0.5,1,101)
+tau_values = [0.5]
 
 
 # Compute Yule's Q coefficient and statistical significance
@@ -135,7 +136,8 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
     phi = matthews_corrcoef(labels_test, pred_te)
     print 'Phi: %.2f' % phi,
     # Significance - use chi-2 with 1 dof: chi2 = N * phi^2
-    print 'Sig (chi^2): %.2f' % (len(labels_test) * pow(phi,2)),
+    sig = len(labels_test) * pow(phi,2)
+    print 'Sig (chi^2): %.2f' % sig,
     print 'Alternatively...'
     try:
         print chi2_contingency(cm)[1]
@@ -151,7 +153,7 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
         pass
     '''
     # Report Yule's Q for agreement
-    (yq, sig) = yule_q(cm)
+    (yq, sig_yq) = yule_q(cm)
     print "Yule's Q: %.2f" % yq
 
     print 'E_W = %.2f' % weeding_efficiency(cm,
@@ -168,7 +170,7 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
         conf_te = -1
         return clf
 
-    res        = np.ones((len(tau_values),8))*np.nan
+    res        = np.ones((len(tau_values),10))*np.nan
     total_weed = len([l for l in labels_test if l == 'Withdrawn'])
     for i,tau in enumerate(tau_values):
         res[i,0] = tau
@@ -211,22 +213,20 @@ def train_and_eval(clf, train, test, labels_train, labels_test):
                                       total_weed*1.0/len(labels_test),
                                       p[0]) # efficiency
         
-        '''
+
         res[i,5] = matthews_corrcoef(l, p) # phi
-        #print res[i,5]
         try:
-            res[i,6] = 1 - stats.chi2.cdf(sum(sum(cm))*pow(res[i,5],2),1)
-            #print res[i,6]
+            #res[i,6] = 1 - stats.chi2.cdf(sum(sum(cm))*pow(res[i,5],2),1)
+            res[i,6] = len(l) * pow(phi,2)
+            print res[i,6]
             #res[i,6] = chi2_contingency(cm)[1]
         except:
             pass
-        '''
 
         # Report Yule's Q for agreement
-        (res[i,5], res[i,6]) = yule_q(cm)
+        (res[i,7], res[i,8]) = yule_q(cm)
 
-        res[i,7] = np.sum(cm) # number of items used
-        #print res[i,1:4]
+        res[i,9] = np.sum(cm) # number of items used
 
     #print res
 
@@ -241,12 +241,13 @@ def eval_baseline(labels, pred):
     acc = (cm[0,0] + cm[1,1]) * 100.0 / np.sum(cm)
     print 'Accuracy: %d / %d = %.2f%%' % (cm[0,0] + cm[1,1], np.sum(cm), acc)
 
-    '''
     # Report phi coefficient (also known as Matthew's correlation coeff)
     phi = matthews_corrcoef(labels, pred)
     print 'Phi: %.2f' % phi,
     # Significance - use chi-2 with 1 dof: chi2 = N * phi^2
-    print 'Sig (chi^2): %.2f' % (len(labels) * pow(phi,2))
+    sig = len(labels) * pow(phi,2)
+    print 'Sig (chi^2): %.2f' % sig
+    '''
     print 'Alternatively...'
     try:
         print chi2_contingency(cm)[1]
@@ -255,7 +256,7 @@ def eval_baseline(labels, pred):
     '''
 
     # Report Yule's Q for agreement
-    (yq, sig) = yule_q(cm)
+    (yq, sig_yq) = yule_q(cm)
     print "Yule's Q: %.2f" % yq
 
     recall = (cm[1,1]*100.0 / (cm[0,1] + cm[1,1]))
@@ -273,8 +274,8 @@ def eval_baseline(labels, pred):
                              pred[0])
     print 'E_W = %.2f' % eff
 
-    # Accuracy, recall, precision, efficiency, yule-q, sig, #items
-    return (acc, recall, precision, eff, yq, sig, np.sum(cm))
+    # Accuracy, recall, precision, efficiency, phi, sig, yule-q, sig, #items
+    return (acc, recall, precision, eff, phi, sig, yq, sig_yq, np.sum(cm))
 
 
 # Read in pickled data file
@@ -299,10 +300,18 @@ test  = inds[half_N:-1]
 
 # Shift/scale data to be 0-mean, 1-std dev (esp. for SVM)
 scaler = StandardScaler().fit(data[train])
+print 'data mean:'
+print scaler.mean_
+print 'data std:'
+print scaler.std_
+sys.exit(0)
 data = scaler.transform(data)
 
 # Load previously saved results
-result = pickle.load(open(resfile, 'r'))
+if os.path.exists(resfile):
+    result = pickle.load(open(resfile, 'r'))
+else:
+    result = {}
 
 # Predict same value for all test items
 for p in ['Withdrawn', 'Keep']:
@@ -319,8 +328,6 @@ print
 with open(resfile, 'w') as outf:
     pickle.dump(result, outf)
 
-sys.exit(0)
-
 # Utility function to report best scores
 def report(grid_scores, n_top=3):
     top_scores = sorted(grid_scores, key=itemgetter(1), reverse=True)[:n_top]
@@ -334,7 +341,7 @@ def report(grid_scores, n_top=3):
 
 # 1. Linear SVM #################################################
 print 'Linear SVM (even slower with probabilities!):'
-
+'''
 param_dist = {'C': np.logspace(-10,1,12)}
 # Note: can give class weights with class_weight={'Keep':1,'Withdrawn':2}
 clf = SVC(kernel='linear', random_state=0)
@@ -352,12 +359,13 @@ best_C = clf.C
 #clf = LinearSVC(dual=False, random_state=0)
 clf = SVC(kernel='linear', C=best_C, random_state=0, probability=True) # sloooow!
 print 'All features:'
+'''
 
-#clf = pickle.load(open('models/SVM.pkl'))
+clf = pickle.load(open('models/SVM.pkl'))
 (clf, result['SVM']) = train_and_eval(clf, data[train], data[test], 
                                       labels[train], labels[test])
 # Save out the trained classifier
-pickle.dump(clf, open('models/SVM.pkl', 'w'))
+#pickle.dump(clf, open('models/SVM.pkl', 'w'))
 print
 
 # Save results to pickled file
@@ -367,7 +375,7 @@ with open(resfile, 'w') as outf:
 # 1a. RBF SVM ###############################################
 # Use random_state to seed the random number generator (reproducible).
 print 'RBF SVM (slow!):'
-
+'''
 # Param search for RBF SVM takes way too long (data set is too large?)
 # especially for large C
 # so just use the best_C from above
@@ -395,12 +403,12 @@ best_gamma = clf.gamma
 clf = SVC(kernel='rbf', C=best_C, gamma=best_gamma,
           random_state=0, probability=True)
 print 'All features:'
-
-#clf = pickle.load(open('models/SVM-RBF.pkl'))
+'''
+clf = pickle.load(open('models/SVM-RBF.pkl'))
 (clf, result['SVM RBF']) = train_and_eval(clf, data[train], data[test], 
                                           labels[train], labels[test])
 # Save out the trained classifier
-pickle.dump(clf, open('models/SVM-RBF.pkl', 'w'))
+#pickle.dump(clf, open('models/SVM-RBF.pkl', 'w'))
 print
 
 # Save results to pickled file
@@ -408,8 +416,8 @@ with open(resfile, 'w') as outf:
     pickle.dump(result, outf)
 
 
-'''
 # 2. K-nearest-neighbor ###########################################
+'''
 
 # Select best k
 n_iter_search = 100
@@ -426,7 +434,7 @@ report(random_search.grid_scores_)
 clf    = random_search.best_estimator_
 
 print 'All features:'
-
+'''
 clf = pickle.load(open('models/NN.pkl'))
 best_k = clf.n_neighbors
 print '%d-nearest neighbor:' % best_k
@@ -435,7 +443,7 @@ print '%d-nearest neighbor:' % best_k
     train_and_eval(clf, data[train], data[test], 
                    labels[train], labels[test])
 # Save out the trained classifier
-pickle.dump(clf, open('models/NN.pkl', 'w'))
+#pickle.dump(clf, open('models/NN.pkl', 'w'))
 print
 
 # Save results to pickled file
@@ -444,12 +452,15 @@ with open(resfile, 'w') as outf:
 
 # 3. Gaussian Naive Bayes #########################################
 print 'Gaussian Naive Bayes:'
+'''
 clf = GaussianNB()
+'''
 print 'All features:'
+clf = pickle.load(open('models/NB.pkl'))
 (clf, result['NB']) = train_and_eval(clf, data[train], data[test], 
                                      labels[train], labels[test])
 # Save out the trained classifier
-pickle.dump(clf, open('models/NB.pkl', 'w'))
+#pickle.dump(clf, open('models/NB.pkl', 'w'))
 print
 
 # Save results to pickled file
@@ -458,7 +469,7 @@ with open(resfile, 'w') as outf:
 
 # 4. Decision tree ################################################
 print 'Decision tree:'
-
+'''
 n_iter_search = 100
 param_dist = {'max_depth': [3,5,None],
               'max_features': stats.randint(1,8),
@@ -475,21 +486,32 @@ report(random_search.grid_scores_)
 clf    = random_search.best_estimator_
 
 print 'All features:'
-
+'''
 clf = pickle.load(open('models/DT.pkl'))
 (clf, result['DT']) = train_and_eval(clf, data[train], data[test], 
                                      labels[train], labels[test])
 # Save out the trained classifier
-pickle.dump(clf, open('models/DT.pkl','w'))
+#pickle.dump(clf, open('models/DT.pkl','w'))
+
+# Visualize the trained decision tree as PDF 
+dot_data = StringIO() 
+tree.export_graphviz(clf, out_file=dot_data, 
+                     feature_names=['age','n_checkouts',
+                                    'uslibs','peerlibs',
+                                    'hathicopy','hathipub',
+                                    'facultykeep','librariankeep']) 
+graph = pydot.graph_from_dot_data(dot_data.getvalue()) 
+graph.write_pdf("dtree-weed.pdf") 
 print
 
 # Save results to pickled file
 with open(resfile, 'w') as outf:
     pickle.dump(result, outf)
-'''
+
 
 # 5. Random Forest #############################################
 print 'Random Forest:'
+'''
 n_iter_search = 50
 param_dist = {'max_depth': [3,5,None],
               'max_features': stats.randint(1,8),
@@ -504,28 +526,14 @@ print("RandomizedSearchCV took %.2f seconds for %d candidates"
       " parameter settings." % ((time() - start), n_iter_search))
 report(random_search.grid_scores_)
 clf    = random_search.best_estimator_
-
+'''
+clf = pickle.load(open('models/RF.pkl'))
 (clf, result['RF']) = train_and_eval(clf, data[train], data[test], 
                                      labels[train], labels[test])
 # Save out the trained classifier
-pickle.dump(clf, open('models/RF.pkl', 'w'))
+#pickle.dump(clf, open('models/RF.pkl', 'w'))
 
 # Save results to pickled file
 with open(resfile, 'w') as outf:
     pickle.dump(result, outf)
 
-'''
-# 6. AdaBoost
-print 'AdaBoost:'
-clf = AdaBoostClassifier()
-print 'All features:'
-clf = train_and_eval(clf, data, labels)
-print '\nAll features but votes:'
-clf = train_and_eval(clf, data[:,0:4], labels)
-'''
-
-# Don't do this - eats up CPU and RAM and disk!
-#dot_data = StringIO() 
-#tree.export_graphviz(clf, out_file=dot_data) 
-#graph = pydot.graph_from_dot_data(dot_data.getvalue()) 
-#graph.write_pdf("dtree-weed.pdf") 
