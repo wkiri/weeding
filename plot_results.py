@@ -32,13 +32,16 @@ for c in result.keys():
                               np.nan,
                               result[c][:,5])
 
-# Could use this to box or limit the sig results
+# Could use this to box or limit the sig results (see below)
+'''
 print 'Phi Significance'
 for c in result.keys():
     if c in ['Keep','Withdraw']:
         continue
     print c, result[c][:,6]
+'''
 
+'''
 # Plot results as a fn of tau
 ylims = {'Accuracy': [35,100],
          'Recall':   [0,100],
@@ -106,6 +109,7 @@ pylab.legend(loc=4, prop={'size':11}) #, fontsize=10)
 pylab.xlabel('Recall')
 pylab.ylabel('Precision')
 pylab.savefig('fig/roc.pdf')
+'''
 
 for b in ['Keep','Withdraw']:
     print b, result[b]
@@ -134,3 +138,5 @@ print '\hline'
 print '\end{tabular}'
 print '\end{center}'
 print '\end{table}'
+
+

@@ -46,7 +46,7 @@ def yule_q(cm):
 
     # yule_q = (ad-bc)/(ad+bc) = (OR-1)/(OR+1)
     # This is symmetric, so I'm not worried about whether
-    # week or keep comes first
+    # weed or keep comes first
     yq = (cm[0,0]*cm[1,1] - cm[0,1]*cm[1,0]) / \
         np.float(cm[0,0]*cm[1,1] + cm[0,1]*cm[1,0])
 
@@ -304,7 +304,6 @@ print 'data mean:'
 print scaler.mean_
 print 'data std:'
 print scaler.std_
-sys.exit(0)
 data = scaler.transform(data)
 
 # Load previously saved results
@@ -316,10 +315,10 @@ else:
 # Predict same value for all test items
 for p in ['Withdrawn', 'Keep']:
     print 'Baseline (%s):' % p
-    pred = np.array([p] * len(labels[test]))
     # Rename this baseline 
     if p == 'Withdrawn':
         p = 'Withdraw'
+    pred      = np.array([p] * len(labels[test]))
     result[p] = eval_baseline(labels[test], pred)
     print
 print
@@ -438,8 +437,8 @@ print 'All features:'
 clf = pickle.load(open('models/NN.pkl'))
 best_k = clf.n_neighbors
 print '%d-nearest neighbor:' % best_k
-
-(clf, result['%d-NN' % best_k]) = \
+alg = '%d-NN' % best_k
+(clf, result[alg]) = \
     train_and_eval(clf, data[train], data[test], 
                    labels[train], labels[test])
 # Save out the trained classifier
@@ -493,6 +492,7 @@ clf = pickle.load(open('models/DT.pkl'))
 # Save out the trained classifier
 #pickle.dump(clf, open('models/DT.pkl','w'))
 
+'''
 # Visualize the trained decision tree as PDF 
 dot_data = StringIO() 
 tree.export_graphviz(clf, out_file=dot_data, 
@@ -503,6 +503,7 @@ tree.export_graphviz(clf, out_file=dot_data,
 graph = pydot.graph_from_dot_data(dot_data.getvalue()) 
 graph.write_pdf("dtree-weed.pdf") 
 print
+'''
 
 # Save results to pickled file
 with open(resfile, 'w') as outf:
